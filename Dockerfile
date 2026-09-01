@@ -1,7 +1,5 @@
 FROM ghcr.io/acmesh-official/acme.sh:3.1.4
 
-# Overwrite the entry.sh
-COPY entry.sh /entry.sh
+COPY entry-override.sh /entry-override.sh
 
-ENTRYPOINT ["/entry.sh"]
-CMD ["daemon"]
+ENTRYPOINT ["/entry-override.sh"]
