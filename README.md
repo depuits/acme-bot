@@ -162,4 +162,3 @@ acme-bot has its own versioning, independent of acme.sh.
 - The `|` pipe character is used to separate the reload command from the domain list. Make sure to escape it properly in your shell.
 - When using `http` challenge, ensure your web server is running and the `WEBROOT_PATH` directory is accessible.
 - The daemon runs `supercronic` with a randomized cron schedule to avoid hitting rate limits.
-
