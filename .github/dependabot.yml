@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly" # Check weekly, or "daily" for more frequent checks
+      day: "monday" # Optional: specify a day
+    open-pull-requests-limit: 1 # Limit to 1 open PR to avoid spam
+    commit-message:
+      prefix: "[docker]"
+      
