@@ -1,40 +1,164 @@
 # acme-bot
 
-An SSL certificate auto-renewal and deployment bot running in a Docker container, based on acme.sh.
+An SSL certificate auto-renewal and deployment bot running in a Docker container, based on [acme.sh](https://github.com/acmesh-official/acme.sh).
 
-## Why do we need acme-bot?
+## Why acme-bot?
 
-[acme.sh](https://github.com/acmesh-official/acme.sh) is an excellent ACME protocol client that supports various DNS APIs and web servers, and can automatically apply for and renew SSL certificates. However, while acme.sh provides an official Docker image, this image cannot automatically update and deploy certificates based on configuration information.
+[acme.sh](https://github.com/acmesh-official/acme.sh) is an excellent ACME protocol client that supports various DNS APIs and web servers, and can automatically apply for and renew SSL certificates. However, while acme.sh provides an official Docker image, this image cannot automatically update and deploy certificates based on configuration provided through environment variables. You must manually run `acme.sh` commands to configure the running container.
 
-acme-bot is a secondary wrapper based on the official acme.sh Docker image. It can configure acme.sh via environment variables, telling acme.sh your domain name and DNS API information. acme-bot will automatically apply for and renew certificates and automatically deploy certificates to the specified services. Therefore, it is particularly suitable for running in a Docker container as a standalone certificate management bot.
+**acme-bot is a wrapper around the official acme.sh Docker image.** It allows you to configure certificate issuance entirely through environment variables. On first startup, acme-bot automatically issues certificates for your domains, and then the built-in daemon handles automatic renewals forever.
 
-## How to use acme-bot?
+Perfect for running as a standalone certificate management bot in Docker or Docker Swarm.
 
-Using acme-bot is very simple, requiring only a few environment variables. Here's an example of using acme-bot:
+## Quick Start
 
 ```bash
 docker run -d \
---name acme-bot \
--e EMAIL="hello@example.com" \
--e DOMAINS="dns_ali:example.com" \
--e Ali_Key="your_ali_key" \
--e Ali_Secret="your_ali_secret" \
--v $PWD/acme:/acme.sh \
-depuits/acme-bot
+  --name acme-bot \
+  -e EMAIL="admin@example.com" \
+  -e DOMAINS="dns_cf:example.com,*.example.com" \
+  -e CF_Token="zfNp-Xm0VhSaCNun7dkLzwnw0UN7FNjaMurUZ8vf" \
+  -e CF_Account_ID="763eac4f1bcebd8b5c95e9fc50d010b4" \
+  -v ./acme_data:/acme.sh \
+  ghcr.io/depuits/acme-bot:latest
 ```
 
-You can also use the ghcr.io image `ghcr.io/depuits/acme-bot`.
+Or use `docker-compose.yml`:
 
-I've also provided a `[docker-compose.yml](./docker-compose.yml)` file, which you can use directly with `docker-compose up -d` to start acme-bot. Of course, you'll need to modify the environment variables in the `docker-compose.yml` file.
+```yaml
+services:
+  acme-bot:
+    image: ghcr.io/depuits/acme-bot:latest
+    container_name: acme-bot
+    restart: unless-stopped
+    environment:
+      - EMAIL=admin@example.com
+      - DOMAINS=dns_cf:example.com,*.example.com
+      - CF_Token=zfNp-Xm0VhSaCNun7dkLzwnw0UN7FNjaMurUZ8vf
+      - CF_Account_ID=763eac4f1bcebd8b5c95e9fc50d010b4
+    volumes:
+      - ./acme_data:/acme.sh
+```
+
+## How It Works
+
+1. **First Startup** (`daemon` mode): acme-bot reads your environment variables and:
+  - Registers an ACME account (using `EMAIL`)
+  - Sets the default CA (if `CA` is specified)
+  - Configures notifications (if `NOTIFY` is specified)
+  - Issues certificates for all domains in `DOMAINS`
+  - Starts the renewal daemon (cron job)
+2. **Renewals**: The daemon runs on a randomized schedule and automatically renews certificates when they expire.
+3. **Deployment**: If you include a reload command in `DOMAINS` (using `|`), it will be executed after each successful issuance or renewal.
+
 
 ## Environment Variables
 
-acme-bot supports the following environment variables:
+### Required
 
-- `EMAIL`: (Required) Your email address, used to register an acme.sh account.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| EMAIL | Your email address for ACME account registration | admin@example.com |
+| DOMAINS | Domain groups to issue certificates for. Format: `METHOD:DOMAIN1,DOMAIN2[\|RELOADCMD]`. Multiple groups separated by `;`. | `dns_freedns:example.com,*.example.com\|touch /certs/.reload;http:www.example.com` |
 
-- `DOMAINS`: (Required) Your domain name and DNS API information, in the format `dns_api:domain1,*.domain1,...[/deploy_hook]`. `dns_api` is the name of your DNS API; for a complete list of supported APIs, please refer to the [acme.sh documentation](https://github.com/acmesh-official/acme.sh/wiki/dnsapi). `domain1,*.domain1,...` is a list of your domain names and wildcard domains, separated by commas. `/deploy_hook` is optional and specifies the deployment method for certificates after release/renewal; for a complete list of supported APIs, please refer to the [acme.sh documentation](https://github.com/acmesh-official/acme.sh/wiki/deployhooks). - `CA`: (Optional) The ACME server for acme.sh. The default is zerossl. You can specify other ACME servers; please refer to the [acme.sh documentation](https://github.com/acmesh-official/acme.sh/wiki/Server) for a complete list of supported servers.
+#### DOMAINS Format Details:
 
-- `NOTIFY`: (Optional) The notification method `notify-hook`. You can specify various notification methods; please refer to the [acme.sh documentation](https://github.com/acmesh-official/acme.sh/wiki/notify) for a complete list of supported methods. Multiple `notify-hook`s are separated by commas.
+```text
+METHOD:DOMAIN1,DOMAIN2, ... | RELOADCMD
+```
 
-⚠️Note: After specifying `dns_api`, `deploy_hook`, and `notify-hook` in the above configuration information, the corresponding environment variables need to be configured. Please refer to the [acme.sh documentation](https://github.com/acmesh-official/acme.sh/wiki) for a complete list of supported environment variables.
+- `METHOD`: The challenge method. Can be:
+  * `dns_*` — DNS challenge (e.g., dns_freedns, dns_cloudflare, dns_ali)
+  * `http` — HTTP-01 challenge (requires WEBROOT_PATH)
+  * `tls-alpn-01` — TLS-ALPN-01 challenge
+- `DOMAIN1,DOMAIN2`: Comma-separated list of domains (can include wildcards like `*.example.com`)
+- `RELOADCMD`: (Optional) Command to run after certificate is issued/renewed. Use `|` to separate from domains.
+
+##### Examples:
+
+```bash
+# Single domain with DNS challenge and reload command
+DOMAINS="dns_freedns:example.com,*.example.com|touch /certs/.reload"
+
+# Multiple groups with different DNS providers
+DOMAINS="dns_freedns:example.com|touch /certs/.reload;dns_cloudflare:other.com"
+
+# HTTP challenge with custom webroot
+DOMAINS="http:example.com,www.example.com|touch /certs/.reload"
+```
+
+### Optional
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| CA | ACME CA server to use | `zerossl` | `letsencrypt` |
+| WEBROOT_PATH | Webroot path for HTTP-01 challenges | `/var/www/html` | `/usr/share/nginx/html` |
+| NOTIFY | Notification hook(s) |(none) | `customscript` |
+| NOTIFY_LEVEL | Notification level | `2` | `3` |
+| NOTIFY_MODE | Notification mode | `0` | `1` |
+| NOTIFY_SOURCE | Notification source | (none) | `myservername` |
+
+#### DNS Provider Credentials
+
+After specifying a DNS provider in `DOMAINS` (e.g., `dns_cf`), you must provide the corresponding credentials as environment variables. See the [acme.sh DNS API documentation](https://github.com/acmesh-official/acme.sh/wiki/dnsapi) for the complete list.
+
+##### Common examples:
+
+| Provider | Required Variables |
+|----------|--------------------|
+| Cloudflare | `CF_Key`, `CF_Email` or `CF_Token` |
+| Route53 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| FreeDNS Afraid.org | `FREEDNS_User`, `FREEDNS_Password` |
+
+#### Notification Variables
+
+If you specify `NOTIFY`, you may need additional environment variables for your notification hook. See the [acme.sh notification documentation](https://github.com/acmesh-official/acme.sh/wiki/notify).
+
+## Storage and Persistence
+
+All certificates, account information, and configuration are stored in /acme.sh inside the container. Mount this directory to a volume to persist certificates across container restarts:
+
+```yaml
+volumes:
+  - ./acme_data:/acme.sh
+```
+
+## Running Single Commands
+
+Since acme-bot is a wrapper around acme.sh, you can run any acme.sh command directly using the simpler syntax:
+
+```bash
+# List all certificates
+docker exec acme-bot --list
+
+# Show account information
+docker exec acme-bot --show-account
+
+# Upgrade acme.sh to the latest version
+docker exec acme-bot --upgrade
+
+# Issue a certificate manually (if needed)
+docker exec acme-bot --issue -d example.com --webroot /var/www/html
+
+# Force renew a certificate
+docker exec acme-bot --renew -d example.com --force
+```
+
+**Important:** Your entrypoint script passes through everything after the container name directly to acme.sh. So you don't need to type `acme.sh` again—just use the flags directly.
+
+## Tags
+
+acme-bot has its own versioning, independent of acme.sh.
+
+- `latest` — Latest stable acme-bot release
+- `dev` — Development build (may be unstable)  
+- `1.0.0`, `1.0.1`, etc. — Specific acme-bot versions
+
+**Example:** acme-bot v1.0.0 might be built on acme.sh 3.1.4, while v1.1.0 could use acme.sh 3.1.5. Check the [GitHub Releases](https://github.com/depuits/acme-bot/releases) for the exact combination in each version.
+
+## Notes
+
+- The `DOMAINS` format supports multiple groups separated by semicolons (`;`), each with their own DNS provider and reload command.
+- The `|` pipe character is used to separate the reload command from the domain list. Make sure to escape it properly in your shell.
+- When using `http` challenge, ensure your web server is running and the `WEBROOT_PATH` directory is accessible.
+- The daemon runs `supercronic` with a randomized cron schedule to avoid hitting rate limits.
