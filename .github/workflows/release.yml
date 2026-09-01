@@ -46,13 +46,13 @@ jobs:
           IMAGE_NAME="${{ env.IMAGE_NAME }}"
           
           # Always build dev tag
-          TAGS="$DOCKER_USERNAME/$IMAGE_NAME:dev ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:dev"
+          TAGS="$DOCKER_USERNAME/$IMAGE_NAME:dev,ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:dev"
           
           # If this is a release, also build latest and version tag
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG_NAME="${{ github.event.release.tag_name }}"
-            TAGS="$TAGS $DOCKER_USERNAME/$IMAGE_NAME:latest ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:latest"
-            TAGS="$TAGS $DOCKER_USERNAME/$IMAGE_NAME:$TAG_NAME ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:$TAG_NAME"
+            TAGS="$TAGS,$DOCKER_USERNAME/$IMAGE_NAME:latest,ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:latest"
+            TAGS="$TAGS,$DOCKER_USERNAME/$IMAGE_NAME:$TAG_NAME,ghcr.io/$GHCR_USERNAME/$IMAGE_NAME:$TAG_NAME"
           fi
           
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
