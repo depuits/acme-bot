@@ -79,6 +79,8 @@ services:
 2. **Renewals**: The daemon runs on a randomized schedule and automatically renews certificates when they expire.
 3. **Deployment**: If you set `AB_<GROUP>_RELOADCMD`, it will be executed after each successful issuance or renewal for that group.
 
+See [acme.sh Docker documentation](https://github.com/acmesh-official/acme.sh/wiki/Run-acme.sh-in-docker) for usage without the `daemon` command.
+
 ## Environment Variables
 
 ### Required
@@ -156,7 +158,7 @@ volumes:
 
 ## Running Single Commands
 
-Since acme-bot is a wrapper around acme.sh, you can run any acme.sh command directly using the simpler syntax:
+Since acme-bot is a wrapper around acme.sh, you can run any acme.sh command directly:
 
 ```bash
 # List all certificates
@@ -174,8 +176,6 @@ docker exec acme-bot acme.sh --issue -d example.com --webroot /var/www/html
 # Force renew a certificate
 docker exec acme-bot acme.sh --renew -d example.com --force
 ```
-
-**Important:** Your entrypoint script passes through everything after the container name directly to acme.sh. So you don't need to type `acme.sh` again—just use the flags directly.
 
 ## Tags
 
