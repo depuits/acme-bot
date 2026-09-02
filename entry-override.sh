@@ -56,7 +56,7 @@ process_cert_groups() {
         
         for domain in "$@"; do
             [ -z "$domain" ] && continue
-            domain_args="$domain_args -d $domain"
+            domain_args="$domain_args -d '$domain'"
         done
         
         # Build the issue command
@@ -83,7 +83,7 @@ process_cert_groups() {
         echo "Issuing certificate for group $group: $domain_list using $method"
         echo "Running: $cmd"
         eval "$cmd"
-        
+
         # Build the install command
         install_cmd="acme.sh --install-cert $domain_args"
         

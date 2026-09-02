@@ -160,19 +160,19 @@ Since acme-bot is a wrapper around acme.sh, you can run any acme.sh command dire
 
 ```bash
 # List all certificates
-docker exec acme-bot --list
+docker exec acme-bot acme.sh --list
 
 # Show account information
-docker exec acme-bot --show-account
+docker exec acme-bot acme.sh --show-account
 
 # Upgrade acme.sh to the latest version
-docker exec acme-bot --upgrade
+docker exec acme-bot acme.sh --upgrade
 
 # Issue a certificate manually (if needed)
-docker exec acme-bot --issue -d example.com --webroot /var/www/html
+docker exec acme-bot acme.sh --issue -d example.com --webroot /var/www/html
 
 # Force renew a certificate
-docker exec acme-bot --renew -d example.com --force
+docker exec acme-bot acme.sh --renew -d example.com --force
 ```
 
 **Important:** Your entrypoint script passes through everything after the container name directly to acme.sh. So you don't need to type `acme.sh` again—just use the flags directly.
