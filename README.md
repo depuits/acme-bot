@@ -16,7 +16,7 @@ Perfect for running as a standalone certificate management bot in Docker or Dock
 docker run -d \
   --name acme-bot \
   -e EMAIL="admin@example.com" \
-  -e DOMAINS="dns_cf:example.com,*.example.com" \
+  -e AB_EXAMPLE_DOMAINS="dns_cf:example.com,*.example.com" \
   -e CF_Token="zfNp-Xm0VhSaCNun7dkLzwnw0UN7FNjaMurUZ8vf" \
   -e CF_Account_ID="763eac4f1bcebd8b5c95e9fc50d010b4" \
   -v ./acme_data:/acme.sh \
@@ -33,11 +33,39 @@ services:
     restart: unless-stopped
     environment:
       - EMAIL=admin@example.com
-      - DOMAINS=dns_cf:example.com,*.example.com
+      # Use AB_<GROUP>_DOMAINS format
+      - AB_EXAMPLE_DOMAINS=dns_cf:example.com,*.example.com
+      # DNS credentials
       - CF_Token=zfNp-Xm0VhSaCNun7dkLzwnw0UN7FNjaMurUZ8vf
       - CF_Account_ID=763eac4f1bcebd8b5c95e9fc50d010b4
     volumes:
       - ./acme_data:/acme.sh
+```
+
+### Multiple Certificate Groups Example
+```yaml
+services:
+  acme-bot:
+    image: ghcr.io/depuits/acme-bot:latest
+    environment:
+      - EMAIL=admin@example.com
+      # Group 1: Main domain with Traefik
+      - AB_TRAEFIK_DOMAINS=dns_freedns:example.com,*.example.com
+      - AB_TRAEFIK_RELOADCMD=touch /certs/traefik.reload
+      - AB_TRAEFIK_KEY_PATH=/certs/traefik.key
+      - AB_TRAEFIK_FULLCHAIN_PATH=/certs/traefik.pem
+      # Group 2: API domain with Nginx
+      - AB_NGINX_DOMAINS=dns_cf:api.example.net
+      - AB_NGINX_CERT_HOME=/nginx/certs
+      - AB_NGINX_RELOADCMD=docker exec nginx nginx -s reload # for this to work you will need to have access to the docker socket
+      # DNS credentials
+      - FREEDNS_User=your_username
+      - FREEDNS_Password=your_password
+      - CF_Token=your_token
+    volumes:
+      - ./acme_data:/acme.sh
+      - ./traefik_certs:/certs
+      - ./nginx_certs:/nginx/certs
 ```
 
 ## How It Works
@@ -46,11 +74,10 @@ services:
   - Registers an ACME account (using `EMAIL`)
   - Sets the default CA (if `CA` is specified)
   - Configures notifications (if `NOTIFY` is specified)
-  - Issues certificates for all domains in `DOMAINS`
+  - Issues certificates for all certificate groups (`AB_<GROUP>_DOMAINS`)
   - Starts the renewal daemon (cron job)
 2. **Renewals**: The daemon runs on a randomized schedule and automatically renews certificates when they expire.
-3. **Deployment**: If you include a reload command in `DOMAINS` (using `|`), it will be executed after each successful issuance or renewal.
-
+3. **Deployment**: If you set `AB_<GROUP>_RELOADCMD`, it will be executed after each successful issuance or renewal for that group.
 
 ## Environment Variables
 
@@ -59,12 +86,26 @@ services:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | EMAIL | Your email address for ACME account registration | admin@example.com |
-| DOMAINS | Domain groups to issue certificates for. Format: `METHOD:DOMAIN1,DOMAIN2[\|RELOADCMD]`. Multiple groups separated by `;`. | `dns_freedns:example.com,*.example.com\|touch /certs/.reload;http:www.example.com` |
 
-#### DOMAINS Format Details:
+#### Certificate Groups
+
+Define one or more certificate groups using the prefix `AB_<GROUP>_`. Each group requires at least `AB_<GROUP>_DOMAINS`. All other variables are optional.
+
+> **Note:** The group name (e.g., `MAIN`, `TRAEFIK`, `NGINX`) must be uppercase and can only contain letters and numbers. It must start with a letter. Invalid examples: `1MAIN` (starts with number), `my-group` (lower case and contains hyphen), `NGINX_PROD` (contains underscore).
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `AB_<GROUP>_DOMAINS` | (Required) Domain configuration in `METHOD:DOMAIN1,DOMAIN2` format | `AB_MAIN_DOMAINS=dns_freedns:example.com,*.example.com` |
+| `AB_<GROUP>_RELOADCMD` | Command to run after certificate installation | `AB_MAIN_RELOADCMD=touch /certs/reload` |
+| `AB_<GROUP>_CERT_HOME` | Custom certificate storage directory | `AB_MAIN_CERT_HOME=/certs/example` |
+| `AB_<GROUP>_KEY_PATH` | Path for the private key file | `AB_MAIN_KEY_PATH=/certs/example.key` |
+| `AB_<GROUP>_FULLCHAIN_PATH` | Path for the fullchain certificate | `AB_MAIN_FULLCHAIN_PATH=/certs/example.pem` |
+| `AB_<GROUP>_WEBROOT_PATH` | Webroot path for HTTP-01 challenge | `AB_MAIN_WEBROOT_PATH=/usr/share/nginx/html` |
+
+**DOMAINS Format Details:**
 
 ```text
-METHOD:DOMAIN1,DOMAIN2, ... | RELOADCMD
+METHOD:DOMAIN1,DOMAIN2, ...
 ```
 
 - `METHOD`: The challenge method. Can be:
@@ -72,27 +113,17 @@ METHOD:DOMAIN1,DOMAIN2, ... | RELOADCMD
   * `http` — HTTP-01 challenge (requires WEBROOT_PATH)
   * `tls-alpn-01` — TLS-ALPN-01 challenge
 - `DOMAIN1,DOMAIN2`: Comma-separated list of domains (can include wildcards like `*.example.com`)
-- `RELOADCMD`: (Optional) Command to run after certificate is issued/renewed. Use `|` to separate from domains.
 
-##### Examples:
-
-```bash
-# Single domain with DNS challenge and reload command
-DOMAINS="dns_freedns:example.com,*.example.com|touch /certs/.reload"
-
-# Multiple groups with different DNS providers
-DOMAINS="dns_freedns:example.com|touch /certs/.reload;dns_cloudflare:other.com"
-
-# HTTP challenge with custom webroot
-DOMAINS="http:example.com,www.example.com|touch /certs/.reload"
-```
+**Tip:** 
+- Use `AB_<GROUP>_CERT_HOME` to store all certificate files in a custom directory
+- Use `AB_<GROUP>_KEY_PATH` and `AB_<GROUP>_FULLCHAIN_PATH` to specify exact file paths
+- If both are set, `KEY_PATH` and `FULLCHAIN_PATH` take precedence over `CERT_HOME`
 
 ### Optional
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
 | CA | ACME CA server to use | `zerossl` | `letsencrypt` |
-| WEBROOT_PATH | Webroot path for HTTP-01 challenges | `/var/www/html` | `/usr/share/nginx/html` |
 | NOTIFY | Notification hook(s) |(none) | `customscript` |
 | NOTIFY_LEVEL | Notification level | `2` | `3` |
 | NOTIFY_MODE | Notification mode | `0` | `1` |
@@ -100,7 +131,7 @@ DOMAINS="http:example.com,www.example.com|touch /certs/.reload"
 
 #### DNS Provider Credentials
 
-After specifying a DNS provider in `DOMAINS` (e.g., `dns_cf`), you must provide the corresponding credentials as environment variables. See the [acme.sh DNS API documentation](https://github.com/acmesh-official/acme.sh/wiki/dnsapi) for the complete list.
+After specifying a DNS provider in `AB_<GROUP>_DOMAINS` (e.g., `dns_cf`), you must provide the corresponding credentials as environment variables. See the [acme.sh DNS API documentation](https://github.com/acmesh-official/acme.sh/wiki/dnsapi) for the complete list.
 
 ##### Common examples:
 
@@ -155,10 +186,3 @@ acme-bot has its own versioning, independent of acme.sh.
 - `1.0.0`, `1.0.1`, etc. — Specific acme-bot versions
 
 **Example:** acme-bot v1.0.0 might be built on acme.sh 3.1.4, while v1.1.0 could use acme.sh 3.1.5. Check the [GitHub Releases](https://github.com/depuits/acme-bot/releases) for the exact combination in each version.
-
-## Notes
-
-- The `DOMAINS` format supports multiple groups separated by semicolons (`;`), each with their own DNS provider and reload command.
-- The `|` pipe character is used to separate the reload command from the domain list. Make sure to escape it properly in your shell.
-- When using `http` challenge, ensure your web server is running and the `WEBROOT_PATH` directory is accessible.
-- The daemon runs `supercronic` with a randomized cron schedule to avoid hitting rate limits.
