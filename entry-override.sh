@@ -1,68 +1,82 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
 # Process all environment variables with AB_ prefix
 process_cert_groups() {
     # Find all unique group identifiers
     # Variables are in format: AB_<GROUP>_<KEY>
-    local groups=""
+    groups=""
     
     # Extract all AB_* variables and find unique group names
     for var in $(env | grep '^AB_' | cut -d'=' -f1); do
         # Remove AB_ prefix and everything after first _
-        local group=$(echo "$var" | sed 's/^AB_//' | cut -d'_' -f1)
-        if [[ ! " $groups " =~ " $group " ]]; then
-            groups="$groups $group"
-        fi
+        group=$(echo "$var" | sed 's/^AB_//' | cut -d'_' -f1)
+        case " $groups " in
+            *" $group "*) ;;
+            *) groups="$groups $group" ;;
+        esac
     done
     
     # Process each group
     for group in $groups; do
         # Build variable names for this group
-        local domains_var="AB_${group}_DOMAINS"
-        local reloadcmd_var="AB_${group}_RELOADCMD"
-        local cert_home_var="AB_${group}_CERT_HOME"
-        local key_path_var="AB_${group}_KEY_PATH"
-        local fullchain_var="AB_${group}_FULLCHAIN_PATH"
-        local webroot_var="AB_${group}_WEBROOT_PATH"
+        domains_var="AB_${group}_DOMAINS"
+        reloadcmd_var="AB_${group}_RELOADCMD"
+        cert_home_var="AB_${group}_CERT_HOME"
+        key_path_var="AB_${group}_KEY_PATH"
+        fullchain_var="AB_${group}_FULLCHAIN_PATH"
+        webroot_var="AB_${group}_WEBROOT_PATH"
         
-        # Check if required variables exist
-        if [ -z "${!domains_var}" ]; then
+        # Check if required variables exist using eval
+        eval "domains=\$$domains_var"
+        if [ -z "$domains" ]; then
             echo "Skipping group $group: No DOMAINS defined"
             continue
         fi
         
-        # Parse the domain configuration
-        local domains="${!domains_var}"
-        local reloadcmd="${!reloadcmd_var:-}"
-        local cert_home="${!cert_home_var:-}"
-        local key_path="${!key_path_var:-}"
-        local fullchain_path="${!fullchain_var:-}"
-        local webroot="${!webroot_var:-/var/www/html}"
+        # Get optional variables
+        eval "reloadcmd=\$$reloadcmd_var"
+        eval "cert_home=\$$cert_home_var"
+        eval "key_path=\$$key_path_var"
+        eval "fullchain_path=\$$fullchain_var"
+        eval "webroot=\$$webroot_var"
+        
+        # Set default webroot if not defined
+        [ -z "$webroot" ] && webroot="/var/www/html"
         
         # Parse method and domains
-        local method="${domains%%:*}"
-        local domain_list="${domains#*:}"
+        method="${domains%%:*}"
+        domain_list="${domains#*:}"
         
         # Build domain arguments
-        local domain_args=""
-        IFS=',' read -ra domains_array <<< "$domain_list"
-        for domain in "${domains_array[@]}"; do
+        domain_args=""
+        OLD_IFS="$IFS"
+        IFS=','
+        set -- $domain_list
+        IFS="$OLD_IFS"
+        
+        for domain in "$@"; do
+            [ -z "$domain" ] && continue
             domain_args="$domain_args -d $domain"
         done
         
         # Build the issue command
-        local cmd="acme.sh --issue"
+        cmd="acme.sh --issue"
         
-        if [[ "$method" == dns_* ]]; then
-            cmd="$cmd --dns $method"
-        elif [ "$method" = "http" ]; then
-            cmd="$cmd --webroot $webroot"
-        elif [ "$method" = "tls-alpn-01" ]; then
-            cmd="$cmd --alpn"
-        else
-            echo "Unknown challenge method: $method for group $group"
-            continue
-        fi
+        case "$method" in
+            dns_*)
+                cmd="$cmd --dns $method"
+                ;;
+            http)
+                cmd="$cmd --webroot $webroot"
+                ;;
+            tls-alpn-01)
+                cmd="$cmd --alpn"
+                ;;
+            *)
+                echo "Unknown challenge method: $method for group $group"
+                continue
+                ;;
+        esac
         
         cmd="$cmd $domain_args"
         
@@ -71,7 +85,7 @@ process_cert_groups() {
         eval "$cmd"
         
         # Build the install command
-        local install_cmd="acme.sh --install-cert $domain_args"
+        install_cmd="acme.sh --install-cert $domain_args"
         
         if [ -n "$cert_home" ]; then
             install_cmd="$install_cmd --cert-home $cert_home"
@@ -115,7 +129,7 @@ init_notify() {
         return 0
     fi
 
-    local cmd="acme.sh --set-notify --notify-hook $NOTIFY"
+    cmd="acme.sh --set-notify --notify-hook $NOTIFY"
     
     if [ -n "$NOTIFY_LEVEL" ]; then
         cmd="$cmd --notify-level $NOTIFY_LEVEL"
